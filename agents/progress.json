@@ -1,0 +1,43 @@
+{
+  "issues": [
+    {
+      "name": "VL Embeddings: plan for Qwen3-VL-Embedding (self-host first; hosted later)",
+      "description": "Goal: support a single fused VL embedding per entity (gallery/video) computed from (text_context + N images/frames), stored as one row per (entity_type, entity_id, model) and indexed for KNN.\n\nImportant constraint: Qwen/Qwen3-VL-Embedding-* is not currently available as a hosted API endpoint we can depend on. Design embeddingkit so that:\n- it can run against a future hosted provider (URL-first inputs), and\n- it can self-host the HuggingFace model as an internal service when needed.\n\nReference script (pool-last-token + L2 normalize): https://huggingface.co/Qwen/Qwen3-VL-Embedding-8B/blob/main/scripts/qwen3_vl_embedding.py",
+      "tasks": [
+        "=== SPEC ===",
+        "[ ] Define canonical VL query contract: text-only, image-only, and text+images all produce ONE query vector in the same model space",
+        "[ ] Define entity VL contract: ONE stored vector per entity per model (no per-asset vectors in v1)",
+        "[ ] Define hard limits for VL inputs: max pages/frames, max total pixels, and max token length",
+        "",
+        "=== MANGA/GALLERY STRATEGY ===",
+        "[ ] Decide page selection policy for galleries (e.g. cover + uniform samples; cap at N)",
+        "[ ] Decide whether to treat pages as \"video frames\" to reuse the HF script path (recommended for multi-page fusion)",
+        "[ ] Define chunking fallback for large galleries (e.g. 20 pages => 4 chunks of 5; embed each chunk; average+normalize)",
+        "",
+        "=== HENTAI0/VIDEO STRATEGY ===",
+        "[ ] Use existing extracted frames as the VL inputs (no MP4 upload); cap frames and sample deterministically",
+        "[ ] Decide frame ordering and sampling (keyframes vs uniform; stable ordering for idempotency)",
+        "",
+        "=== EMBEDDINGKIT API DESIGN ===",
+        "[ ] Extend `embeddingkit/vl` with a \"fused\" embed interface that accepts (text + N image URLs/bytes) and returns ONE vector",
+        "[ ] Keep URL-first asset fetching (presigned URLs) with bytes fallback for providers that cannot fetch URLs",
+        "[ ] Provide a simple fusion helper for chunk-level fusion (avg + L2 normalize) when inputs are chunked",
+        "",
+        "=== SELF-HOST (FIRST IMPLEMENTATION) ===",
+        "[ ] Create a small optional helper package (or reference impl) to run Qwen3-VL-Embedding-8B locally (Transformers/PyTorch) behind HTTP",
+        "[ ] Implement request format for text + frames/pages; apply the same pooling as the HF script (last token + normalize)",
+        "[ ] Add guardrails: per-request max frames/pages, max pixels, and timeout/cancellation",
+        "",
+        "=== HOSTED PROVIDER (FUTURE) ===",
+        "[ ] Add a provider adapter slot for a future hosted Qwen3-VL-Embedding endpoint (URL-first)",
+        "[ ] Ensure model registry supports multiple VL models (2B/8B) at native dims without schema changes",
+        "",
+        "=== STORAGE/SEARCH (APP-OWNED) ===",
+        "[ ] Document expected Postgres schema pattern for storing VL vectors (row-based, halfvec(K), HNSW indexes, and optional 2-stage binary oversample+rescore)",
+        "[ ] Document how apps switch active VL model and how to backfill safely"
+      ],
+      "completed": false
+    }
+  ]
+}
+
