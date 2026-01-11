@@ -63,3 +63,12 @@ The host app provides:
 
 - `runtime.DocumentBuilder` (entity → text),
 - `runtime.Storage` (upsert embedding into the app’s schema).
+
+## Rollout / migrations (recommended)
+
+- Dual-write embeddings for old+new models during rollout (enqueue tasks for both).
+- Switch the “active search model” (app-level view/index) only after backfill.
+- Keep search stable by:
+  - using per-model partial indexes (WHERE model=...),
+  - rolling model changes behind config flags,
+  - and keeping a fallback path (lexical/trigram or previous model) if the new model is missing coverage.
