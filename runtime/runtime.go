@@ -5,6 +5,7 @@ import (
 	"fmt"
 
 	"github.com/doujins-org/embeddingkit/embedder"
+	"github.com/doujins-org/embeddingkit/internal/normalize"
 	"github.com/doujins-org/embeddingkit/tasks"
 	"github.com/doujins-org/embeddingkit/vl"
 )
@@ -189,6 +190,7 @@ func (r *Runtime) GenerateAndStoreVLEmbedding(ctx context.Context, entityType st
 		if err != nil {
 			continue
 		}
+		normalize.L2NormalizeInPlace(vec)
 		dim := len(vec)
 		if err := r.storage.UpsertVLEmbeddingAsset(ctx, entityType, entityID, model, dim, ref, vec); err != nil {
 			continue
@@ -214,6 +216,7 @@ func (r *Runtime) GenerateAndStoreVLEmbedding(ctx context.Context, entityType st
 	for i := range sum {
 		avg[i] = sum[i] * inv
 	}
+	normalize.L2NormalizeInPlace(avg)
 	return r.storage.UpsertVLAggregateEmbedding(ctx, entityType, entityID, model, len(avg), avg)
 }
 
