@@ -13,6 +13,9 @@ type Repo struct {
 }
 
 func NewRepo(pool *pgxpool.Pool, schema string) *Repo {
+	if schema == "" {
+		schema = "embeddingkit"
+	}
 	return &Repo{pool: pool, schema: schema}
 }
 
@@ -31,4 +34,3 @@ func (r *Repo) Enqueue(ctx context.Context, entityType string, entityID int64, m
 	_, err := r.pool.Exec(ctx, q, entityType, entityID, model, reason)
 	return err
 }
-

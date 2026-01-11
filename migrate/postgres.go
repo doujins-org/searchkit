@@ -12,13 +12,27 @@ import (
 	"github.com/doujins-org/embeddingkit/migrations"
 )
 
+func quoteIdent(ident string) (string, error) {
+	ident = strings.TrimSpace(ident)
+	if ident == "" {
+		return "", fmt.Errorf("empty identifier")
+	}
+	for _, r := range ident {
+		if (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z') || (r >= '0' && r <= '9') || r == '_' {
+			continue
+		}
+		return "", fmt.Errorf("invalid identifier %q", ident)
+	}
+	return `"` + ident + `"`, nil
+}
+
 // ApplyPostgres applies embeddingkit's Postgres migrations to the given schema.
 //
 // This intentionally mirrors River-style embedding: the host app can call this
 // during its migration phase, or delegate to its own migration runner.
 func ApplyPostgres(ctx context.Context, pool *pgxpool.Pool, schema string) error {
 	if strings.TrimSpace(schema) == "" {
-		return fmt.Errorf("schema is required")
+		schema = "embeddingkit"
 	}
 
 	dirEntries, err := fs.ReadDir(migrations.Postgres, "postgres")
@@ -50,7 +64,14 @@ func ApplyPostgres(ctx context.Context, pool *pgxpool.Pool, schema string) error
 	}
 	defer func() { _ = tx.Rollback(ctx) }()
 
-	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL search_path = %s", schema)); err != nil {
+	quotedSchema, err := quoteIdent(schema)
+	if err != nil {
+		return fmt.Errorf("invalid schema: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf("CREATE SCHEMA IF NOT EXISTS %s", quotedSchema)); err != nil {
+		return fmt.Errorf("create schema: %w", err)
+	}
+	if _, err := tx.Exec(ctx, fmt.Sprintf("SET LOCAL search_path = %s", quotedSchema)); err != nil {
 		return fmt.Errorf("set search_path: %w", err)
 	}
 
@@ -69,4 +90,3 @@ func ApplyPostgres(ctx context.Context, pool *pgxpool.Pool, schema string) error
 	}
 	return nil
 }
-

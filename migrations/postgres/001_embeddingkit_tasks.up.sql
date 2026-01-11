@@ -1,6 +1,8 @@
 -- embeddingkit: task table only (embedding storage is app-owned)
 
-CREATE TABLE IF NOT EXISTS embedding_tasks (
+CREATE SCHEMA IF NOT EXISTS embeddingkit;
+
+CREATE TABLE IF NOT EXISTS embeddingkit.embedding_tasks (
     id bigserial PRIMARY KEY,
     entity_type text NOT NULL,
     entity_id bigint NOT NULL,
@@ -13,8 +15,7 @@ CREATE TABLE IF NOT EXISTS embedding_tasks (
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS uq_embedding_tasks_entity_model
-    ON embedding_tasks(entity_type, entity_id, model);
+    ON embeddingkit.embedding_tasks(entity_type, entity_id, model);
 
 CREATE INDEX IF NOT EXISTS idx_embedding_tasks_ready
-    ON embedding_tasks(next_run_at, id);
-
+    ON embeddingkit.embedding_tasks(next_run_at, id);
