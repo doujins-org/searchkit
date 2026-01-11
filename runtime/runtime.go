@@ -182,11 +182,19 @@ func (r *Runtime) GenerateAndStoreVLEmbedding(ctx context.Context, entityType st
 	var sum []float32
 	var n int
 	for _, ref := range refs {
-		ct, data, err := r.assetFetcher(ctx, ref)
+		content, err := r.assetFetcher(ctx, ref)
 		if err != nil {
 			continue
 		}
-		vec, err := r.vlEmbedder.EmbedTextAndImages(ctx, doc, []vl.Image{{ContentType: ct, Bytes: data}})
+
+		var vec []float32
+		if urlEmbedder, ok := r.vlEmbedder.(vl.URLEmbedder); ok && content.URL != "" {
+			vec, err = urlEmbedder.EmbedTextAndImageURLs(ctx, doc, []string{content.URL})
+		} else if content.Bytes != nil {
+			vec, err = r.vlEmbedder.EmbedTextAndImages(ctx, doc, []vl.Image{{ContentType: content.ContentType, Bytes: content.Bytes}})
+		} else {
+			continue
+		}
 		if err != nil {
 			continue
 		}

@@ -21,9 +21,19 @@ type AssetRef struct {
 // AssetLister returns the assets that should be embedded for an entity (gallery/video).
 type AssetLister func(ctx context.Context, entityType string, entityID int64) ([]AssetRef, error)
 
-// AssetFetcher returns the bytes for the asset referenced by AssetRef.
+type AssetContent struct {
+	// URL is preferred when using hosted providers that can fetch the asset directly
+	// (e.g. presigned S3/MinIO URL).
+	URL string
+
+	// Bytes is the fallback when the provider can't fetch URLs and needs upload.
+	ContentType string
+	Bytes       []byte
+}
+
+// AssetFetcher resolves an AssetRef into either a URL (preferred) or bytes.
 // (Implementations may stream in practice; keep it simple for now.)
-type AssetFetcher func(ctx context.Context, ref AssetRef) (contentType string, data []byte, err error)
+type AssetFetcher func(ctx context.Context, ref AssetRef) (AssetContent, error)
 
 // Embedder generates vision-language embeddings for text+assets.
 //
@@ -35,8 +45,13 @@ type Embedder interface {
 	EmbedTextAndImages(ctx context.Context, text string, images []Image) ([]float32, error)
 }
 
+// URLEmbedder is an optional interface for providers that accept image URLs
+// directly (preferred, to avoid proxying bytes through the app).
+type URLEmbedder interface {
+	EmbedTextAndImageURLs(ctx context.Context, text string, urls []string) ([]float32, error)
+}
+
 type Image struct {
 	ContentType string
 	Bytes       []byte
 }
-
