@@ -1,6 +1,19 @@
 {
   "issues": [
     {
+      "name": "Plan: embed embeddingkit tables into host schema (River-style)",
+      "description": "Goal: embeddingkit should not create its own Postgres schema/namespace. Like River, embeddingkit is embedded into an app and creates its own prefixed tables inside the host app schema (e.g. `doujins.embeddingkit_*`, `hentai0.embeddingkit_*`).\n\nKey decisions:\n- No `embeddingkit` Postgres schema.\n- All library-owned tables are prefixed: `embeddingkit_*`.\n- Migrations run with `SET LOCAL search_path = <host_schema>` and create tables in that schema.\n- Apps remain owners of their embedding vector tables; embeddingkit owns only generic infra tables (task queue now; potential future storage tables if we later centralize).",
+      "tasks": [
+        "[x] Rename task table to `embeddingkit_embedding_tasks` (avoid clashing with app `embedding_tasks`)",
+        "[x] Remove `CREATE SCHEMA IF NOT EXISTS embeddingkit` from migrations; create tables in host schema via search_path",
+        "[x] Require host schema parameter in `migrate.ApplyPostgres` (no default schema); only sets search_path (River-style)",
+        "[x] Update `tasks.Repo` to target `<schema>.embeddingkit_embedding_tasks`",
+        "[x] Update docs + progress notes to reflect River-style table placement",
+        "[ ] Update downstream apps to apply embeddingkit migrations into their schema when they start using embeddingkit-owned tables"
+      ],
+      "completed": false
+    },
+    {
       "name": "VL Embeddings: plan for Qwen3-VL-Embedding (hosted-only; provider TBD)",
       "description": "Goal: support a single fused VL embedding per entity (gallery/video) computed from (text_context + N images/frames), stored as one row per (entity_type, entity_id, model) and indexed for KNN.\n\nImportant constraint: Qwen/Qwen3-VL-Embedding-* is not currently available as a hosted API endpoint we can depend on. Design embeddingkit so that it can plug into a future hosted provider (URL-first inputs).\n\nReference script (pool-last-token + L2 normalize): https://huggingface.co/Qwen/Qwen3-VL-Embedding-8B/blob/main/scripts/qwen3_vl_embedding.py",
       "tasks": [
