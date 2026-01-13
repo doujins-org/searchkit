@@ -236,6 +236,23 @@ func (r *Runtime) IsVLModel(model string) bool {
 	return ok
 }
 
+// EmbedQueryText returns a normalized embedding vector for arbitrary query text
+// using a configured text embedder.
+//
+// This is intended for host apps calling SemanticSearch at request time.
+func (r *Runtime) EmbedQueryText(ctx context.Context, model string, text string) ([]float32, error) {
+	emb, ok := r.textEmbedders[strings.TrimSpace(model)]
+	if !ok {
+		return nil, fmt.Errorf("model %q is not configured for text embeddings", model)
+	}
+	vec, err := emb.EmbedText(ctx, text)
+	if err != nil {
+		return nil, err
+	}
+	normalize.L2NormalizeInPlace(vec)
+	return vec, nil
+}
+
 type TextEmbeddingItem struct {
 	EntityType string
 	EntityID   string
