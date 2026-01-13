@@ -75,16 +75,20 @@ func LexicalSearch(ctx context.Context, pool *pgxpool.Pool, query string, opts L
 	}
 	args["min_similarity"] = minSim
 
+	// NOTE: `pg_trgm`'s `%` operator uses a session-level similarity threshold
+	// (set via `set_limit`). To ensure `MinSimilarity` is respected (and to keep
+	// the GIN trigram index usable for candidate filtering), we set the limit via
+	// a CTE and *reference it* so Postgres can't optimize it away.
 	sql := fmt.Sprintf(`
+		WITH _ AS (SELECT set_limit(@min_similarity))
 		SELECT
 			sd.entity_type,
 			sd.entity_id,
 			sd.language,
 			SIMILARITY(sd.document, @q)::float4 AS score
-		FROM %s sd
+		FROM _, %s sd
 		%s
 		  AND sd.document %% @q
-		  AND SIMILARITY(sd.document, @q) >= @min_similarity
 		ORDER BY score DESC, sd.entity_type ASC, sd.entity_id ASC
 		LIMIT @limit
 	`, table, where)
