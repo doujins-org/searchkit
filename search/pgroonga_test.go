@@ -35,7 +35,7 @@ func TestNormalizePGroongaScore(t *testing.T) {
 }
 
 func TestBuildPGroongaSQL(t *testing.T) {
-	sql, args, _, err := buildPGroongaSQL("doujins", "doujins", []string{"gallery"})
+	sql, args, _, err := buildPGroongaSQL("doujins", "doujins", []string{"gallery"}, "", nil)
 	if err != nil {
 		t.Fatalf("unexpected err: %v", err)
 	}

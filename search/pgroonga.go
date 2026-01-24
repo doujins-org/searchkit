@@ -64,6 +64,19 @@ type PGroongaOptions struct {
 	// ScoreK controls normalization: normalized = raw / (raw + ScoreK).
 	// Defaults to 1.
 	ScoreK float32
+
+	// FilterSQL is an optional additional WHERE fragment appended to the query as:
+	//   ... AND (<FilterSQL>)
+	//
+	// It is intended for host-owned constraints that must be enforced inside the
+	// retrieval query.
+	//
+	// IMPORTANT: this is trusted SQL provided by the host app. Do not insert
+	// user input into it unsafely.
+	FilterSQL string
+	// FilterArgs are named args referenced by FilterSQL using pgx '@name'
+	// placeholders (e.g. "... language = @lang").
+	FilterArgs map[string]any
 }
 
 // NormalizePGroongaScore converts a raw PGroonga score into a [0..1] range
@@ -134,7 +147,7 @@ func buildPGroongaTypeaheadQuery(q string) string {
 	return strings.Join(toks, " ")
 }
 
-func buildPGroongaSQL(docSchema string, extSchema string, entityTypes []string) (string, pgx.NamedArgs, string, error) {
+func buildPGroongaSQL(docSchema string, extSchema string, entityTypes []string, filterSQL string, filterArgs map[string]any) (string, pgx.NamedArgs, string, error) {
 	qs, err := quoteIdent(docSchema)
 	if err != nil {
 		return "", nil, "", fmt.Errorf("invalid schema: %w", err)
@@ -155,6 +168,12 @@ func buildPGroongaSQL(docSchema string, extSchema string, entityTypes []string) 
 	if len(entityTypes) > 0 {
 		where += " AND sd.entity_type = ANY(@entity_types::text[])"
 		args["entity_types"] = entityTypes
+	}
+	if strings.TrimSpace(filterSQL) != "" {
+		where += " AND (" + filterSQL + ")"
+		if err := mergeNamedArgs(args, filterArgs); err != nil {
+			return "", nil, "", err
+		}
 	}
 
 	// Query uses PGroonga's query syntax operator. Hosts must ensure the
@@ -216,7 +235,7 @@ func PGroongaSearch(ctx context.Context, pool *pgxpool.Pool, query string, opts 
 		return nil, err
 	}
 
-	sql, args, _, err := buildPGroongaSQL(opts.Schema, extSchema, opts.EntityTypes)
+	sql, args, _, err := buildPGroongaSQL(opts.Schema, extSchema, opts.EntityTypes, opts.FilterSQL, opts.FilterArgs)
 	if err != nil {
 		return nil, err
 	}

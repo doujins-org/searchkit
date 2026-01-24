@@ -24,6 +24,19 @@ type LexicalOptions struct {
 	EntityTypes   []string
 	Limit         int
 	MinSimilarity float32
+
+	// FilterSQL is an optional additional WHERE fragment appended to the query as:
+	//   ... AND (<FilterSQL>)
+	//
+	// It is intended for host-owned constraints that must be enforced inside the
+	// retrieval query.
+	//
+	// IMPORTANT: this is trusted SQL provided by the host app. Do not insert
+	// user input into it unsafely.
+	FilterSQL string
+	// FilterArgs are named args referenced by FilterSQL using pgx '@name'
+	// placeholders (e.g. "... language = @lang").
+	FilterArgs map[string]any
 }
 
 // LexicalSearch runs a trigram similarity search against `<schema>.search_documents`.
@@ -64,6 +77,12 @@ func LexicalSearch(ctx context.Context, pool *pgxpool.Pool, query string, opts L
 	if len(opts.EntityTypes) > 0 {
 		where += " AND sd.entity_type = ANY(@entity_types::text[])"
 		args["entity_types"] = opts.EntityTypes
+	}
+	if strings.TrimSpace(opts.FilterSQL) != "" {
+		where += " AND (" + opts.FilterSQL + ")"
+		if err := mergeNamedArgs(args, opts.FilterArgs); err != nil {
+			return nil, err
+		}
 	}
 
 	// Use both `%` (fast candidate filter via gin_trgm_ops) and similarity threshold.
