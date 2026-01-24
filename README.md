@@ -78,7 +78,7 @@ searchkit decides what to rebuild based on worker config + active model set.
 
 Run a background worker (River/cron/goroutine) that calls:
 
-- `worker.RunOnceSearchkit(ctx, rt, worker.SearchkitOptions{...})`
+- `worker.SyncOnce(ctx, rt, worker.SearchkitOptions{...})`
 
 This single entrypoint:
 
@@ -88,36 +88,52 @@ This single entrypoint:
 
 ### 6) Query candidates (lexical + semantic)
 
-Recommended entrypoints:
+Recommended entrypoint:
 
-- Typeahead: `searchkit.Typeahead(...)`
-- Search (lexical + vector fused by RRF): `searchkit.Search(...)`
+- Create a SearchKit client once and reuse it:
 
-Language-specific routing:
+```go
+client, err := searchkit.NewClient(searchkit.ClientConfig{
+  Pool:            pool,
+  Schema:          "doujins",
+  Embedder:        rt,          // runtime.Runtime implements Embedder
+  DefaultModel:    "text-embed-3-small",
+  DefaultLanguage: "en",
+})
+```
+
+Then per request:
+
+```go
+hits, err := client.Search(ctx, userQuery, searchkit.SearchOptions{
+  Language: "en",
+  Mode:     searchkit.SearchModeDual, // lexical|semantic|dual
+  EntityTypes: []string{"gallery"},
+  Limit:    20,
+})
+```
+
+Typeahead suggestions while typing:
+
+```go
+hits, err := client.Typeahead(ctx, userQuery, searchkit.TypeaheadOptions{
+  Language: "en",
+  EntityTypes: []string{"tag", "artist", "series"},
+  Limit:    10,
+  MinSimilarity: 0.3,
+})
+```
+
+Language-specific routing (handled inside the client):
 
 - For most languages, Typeahead uses `pg_trgm` over `<schema>.search_documents.document`, and Search uses Postgres FTS (`tsvector` + `ts_rank_cd`) for the lexical side.
 - For `ja`/`zh`/`ko`, Typeahead and the lexical side of Search use **PGroonga** over `<schema>.search_documents.raw_document` (native-script), because Postgres FTS `simple` config does not provide Japanese/Chinese segmentation and trigram transliteration is lossy.
 
-Lower-level building blocks (if you need direct control):
+Query syntax notes:
 
-Lexical (typeahead / typos / substring):
-
-- `search.LexicalSearch(ctx, pool, query, search.LexicalOptions{Schema, Language, EntityTypes, Limit, MinSimilarity})`
-
-Lexical (keyword search; BM25-family):
-
-- `search.FTSSearch(ctx, pool, query, search.FTSOptions{Schema, Language, EntityTypes, Limit})`
-
-Lexical (CJK/Korean native script; PGroonga):
-
-- `search.PGroongaSearch(ctx, pool, query, search.PGroongaOptions{Schema, Language, EntityTypes, Limit})`
-
-Semantic (candidate generation; host hydrates IDs + applies business logic):
-
-- `search.SemanticSearch(ctx, pool, queryVec, search.Options{Schema, Model, Language, EntityTypes, ...})`
-- Similar-to-item: `search.SimilarTo(ctx, pool, schema, entityType, entityID, model, language, limit, opts)`
-
-These APIs return only IDs + scores; the host app hydrates those IDs into DTOs and blends results as desired.
+- SearchKit does **not** treat leading `-term` as an operator. Leading `-` is treated as punctuation (so `-factor` behaves like `factor`).
+- For Postgres FTS (`websearch_to_tsquery`), SearchKit normalizes intra-token hyphens to spaces so tokens like `two-factor` behave like `two factor`.
+- Natural-language negation: for FTS only, `not X` is rewritten to `-X` before it reaches Postgres. This is a convenience for users typing normal phrases like `X not Y`.
 
 ## Language → Postgres FTS config mapping
 

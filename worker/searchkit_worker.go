@@ -36,7 +36,7 @@ type SearchkitOptions struct {
 	// Batch sizing (defaults are conservative).
 	DirtyBatchSize   int
 	BackfillPageSize int
-	// Upper bound on how much cursor backfill work to do per RunOnce.
+	// Upper bound on how much cursor backfill work to do per SyncOnce.
 	BackfillMaxPages int
 
 	// Embedding task draining settings (existing embedding worker).
@@ -66,7 +66,7 @@ type dirtyRow struct {
 	Reason     string
 }
 
-func RunOnceSearchkit(ctx context.Context, rt *runtime.Runtime, opts SearchkitOptions) error {
+func SyncOnce(ctx context.Context, rt *runtime.Runtime, opts SearchkitOptions) error {
 	if rt == nil {
 		return fmt.Errorf("runtime is required")
 	}

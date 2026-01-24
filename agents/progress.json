@@ -25,7 +25,7 @@
     {
       "name": "Single Worker Loop",
       "tasks": [
-        "[x] `worker.RunOnceSearchkit(...)` entrypoint",
+        "[x] `worker.SyncOnce(...)` entrypoint",
         "[x] Process `search_dirty` (upsert docs, enqueue embeddings, delete artifacts on delete)",
         "[x] Cursor-based backfill (`search_documents_backfill_state`, `embedding_vectors_backfill_state`)",
         "[x] Drain `embedding_tasks` and write `embedding_vectors`",
@@ -67,6 +67,58 @@
         "",
         "=== DOCS ===",
         "[x] Update `README.md` with:\n  - when PGroonga is required\n  - how language routing works\n  - behavior when extension is not installed (fallback)\n  - recommended query strategies for CJK/Korean"
+      ]
+    },
+    {
+      "name": "Query Parsing: hyphen-safe FTS + natural-language negation (deprecate '-term')",
+      "tasks": [
+        "=== PROBLEM ===",
+        "[x] Fix `big-breasts` parsing in Postgres FTS: `websearch_to_tsquery` treats '-' as NOT, so hyphenated slugs/terms can behave like negation.",
+        "[x] Stop encouraging explicit `-term` syntax. Prefer natural language: `not term` / `X not Y`.",
+        "",
+        "=== TARGET BEHAVIOR (SEARCHKIT CONTRACT) ===",
+        "[x] Provide query normalization helpers in SearchKit:\n  - Normalize intra-token hyphens to spaces for FTS input (e.g. `big-breasts` → `big breasts`).\n  - Strip leading '-' from user tokens (e.g. `-breasts` behaves like `breasts`).\n  - For FTS only: parse natural-language negation `not <token>` into `-<token>` (case-insensitive), so `X not Y` becomes `X -Y` for tsquery.\n  - For embeddings: expose `searchkit.NormalizeQueryForEmbedding(query)` so host apps can embed normalized text.",
+        "",
+        "=== IMPLEMENTATION (SEARCHKIT) ===",
+        "[x] Implement shared query normalization in `internal/normalize` (`QueryForFTS`, `QueryForEmbedding`).",
+        "[x] Wire it into FTS paths:\n  - `search.FTSSearch(...)` applies `QueryForFTS(...)` before calling `websearch_to_tsquery`.\n  - Higher-level entrypoints (`searchkit.Search`, `searchkit.Typeahead`) apply `QueryForEmbedding(...)` for consistency.",
+        "[x] Expose host-facing helper `searchkit.NormalizeQueryForEmbedding(query)` for embedding callers.",
+        "",
+        "=== TESTING ===",
+        "[x] Add unit tests for normalization:\n  - `big-breasts` and `big breasts` produce identical FTS query.\n  - `-breasts` produces `breasts` (no NOT operator).\n  - `not breasts` produces `-breasts` for FTS.\n  - `big not breasts` produces lexical `big -breasts`.\n  - Hyphen + negation composition: `not big-breasts` → lexical `-big breasts`.\n  - Embedding query strips leading '-' but otherwise preserves natural language (e.g. `big not breasts`).",
+        "",
+        "=== DOCS ===",
+        "[x] Update SearchKit README:\n  - Explicit `-term` is not supported as an operator (leading '-' is treated as punctuation).\n  - Use `not term` for lexical exclusion.\n  - Note: semantic search does not guarantee strict negation; `not` is interpreted as natural language by the embedding model."
+      ]
+    },
+    {
+      "name": "Host API: add text-only SearchKit client (hide embeddings from host apps)",
+      "tasks": [
+        "=== GOAL ===",
+        "[x] Host apps call a single text-based API and never compute embeddings / `QueryVec`.\n  - `client.Search(ctx, userText, opts)`\n  - SearchKit handles query normalization + embedding (when semantic is enabled).\n  - Old APIs removed; no backwards-compat layer.",
+        "",
+        "=== PUBLIC API DESIGN ===",
+        "[x] Add `searchkit.NewClient(...)` that captures (schema is client-scoped, not per-query):\n  - `pool` + `schema`\n  - an embedder (`runtime.Runtime` or a minimal `Embedder` interface)\n  - defaults (RRFK, TwoStage, OversampleFactor, default model, etc.)",
+        "[x] Define `SearchMode`:\n  - `lexical` (FTS/PGroonga only)\n  - `semantic` (vector only)\n  - `dual` (lexical + semantic fused via RRF)",
+        "[x] Replace `SearchRequest` naming for the host-friendly API:\n  - Per-client config: `ClientConfig` (pool/schema/embedder + defaults)\n  - Per-call options: `SearchOptions` (language/mode/entity types/limit + overrides)\n  - Optional functional options (`WithLanguage(...)`, `WithMode(...)`, etc.) if it makes callsites cleaner",
+        "[x] Define `SearchOptions` (per-call) with only user-facing knobs:\n  - `Language`\n  - `Mode`\n  - `EntityTypes` (or separate lexical/semantic entity type lists)\n  - `Limit`\n  - `Model` (optional per-call override; defaults to client config)\n  - `TwoStage` + `OversampleFactor` (optional override)\n  - `FilterSQL`/`FilterArgs` (optional for host-owned constraints)\n  - `RRFK` (optional override)",
+        "[x] Confirm the client API is the only supported surface for host apps:\n  - Host apps should not call `search.FTSSearch`, `search.LexicalSearch`, `search.PGroongaSearch`, `search.SemanticSearch`, `search.SimilarTo` directly for normal app behavior.\n  - SearchKit no longer exposes `NormalizeQueryForEmbedding` for host embedding.\n  - Lower-level code is not part of the supported host surface.",
+        "",
+        "=== IMPLEMENTATION ===",
+        "[x] Implement `Client.Search(...)`:\n  - Normalize user text.\n  - If `Mode` includes semantic: embed inside SearchKit using the configured embedder.\n  - For `lexical` mode: skip embedding and semantic retrieval.\n  - For `semantic` mode: skip lexical retrieval.\n  - Preserve CJK routing behavior.",
+        "[x] Add `Client.Typeahead(...)` suggestions API (normalized text; CJK routing preserved).",
+        "[x] Rename the worker entrypoint from `worker.RunOnceSearchkit(...)` to `worker.SyncOnce(...)` (single-tick) and remove the old name entirely.",
+        "",
+        "=== CLEANUP (NO BACKCOMPAT) ===",
+        "[x] Remove old public APIs that expose embedding plumbing:\n  - `searchkit.Search(ctx, pool, query, SearchRequest{QueryVec...})`\n  - `searchkit.NormalizeQueryForEmbedding(query)`\n  - `SearchRequest` and other types only used by the old API.",
+        "[x] Remove lower-level APIs from docs/supported surface (they remain as implementation details).",
+        "",
+        "=== TESTING ===",
+        "[x] Unit tests:\n  - `Client.Search` does not require/call embedder in lexical mode.\n  - `Client.Search` calls embedder with normalized query in semantic mode.\n  - Leading '-' stripping and hyphen normalization apply to embedding text.\n  - `not X` rewriting applies to FTS text only (covered by normalize package tests).",
+        "[x] Integration tests (lightweight, opt-in via env):\n  - Use a fake embedder returning deterministic vectors.\n  - Verify lexical + semantic modes return expected IDs against a real Postgres when `SEARCHKIT_TEST_URL` is set.",
+        "",
+        "=== DOCS ===",
+        "[x] Update `README.md`:\n  - Document only the client API for host apps.\n  - Show minimal host usage examples for typeahead + search.\n  - Document embedder requirements and defaults.\n  - Document the new worker function name (`worker.SyncOnce`)."
       ]
     }
   ]

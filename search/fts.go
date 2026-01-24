@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	querynorm "github.com/doujins-org/searchkit/internal/normalize"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
@@ -82,8 +83,7 @@ func FTSSearch(ctx context.Context, pool *pgxpool.Pool, query string, opts FTSOp
 		return nil, fmt.Errorf("pool is required")
 	}
 
-	q := strings.TrimSpace(query)
-	q = strings.Join(strings.Fields(q), " ")
+	q := querynorm.QueryForFTS(query)
 	if q == "" {
 		return []FTSHit{}, nil
 	}
@@ -111,7 +111,7 @@ func FTSSearch(ctx context.Context, pool *pgxpool.Pool, query string, opts FTSOp
 		}
 	}
 
-	// Prefer websearch_to_tsquery (supports multi-word, quotes, and "-term").
+	// Prefer websearch_to_tsquery (supports multi-word and quotes).
 	// If the query is not parseable, fall back to plainto_tsquery.
 	run := func(fn string) ([]FTSHit, error) {
 		sql := fmt.Sprintf(`
