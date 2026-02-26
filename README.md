@@ -107,9 +107,12 @@ Then per request:
 ```go
 hits, err := client.Search(ctx, userQuery, searchkit.SearchOptions{
   Language: "en",
+  LanguageMode: searchkit.LanguageModeExact, // exact|fallback_en (default exact)
   Mode:     searchkit.SearchModeDual, // lexical|semantic|dual
   EntityTypes: []string{"gallery"},
   Limit:    20,
+  FilterSQL:  "EXISTS (SELECT 1 FROM app.entities e WHERE e.id::text = sd.entity_id AND e.deleted_at IS NULL)",
+  FilterArgs: map[string]any{},
 })
 ```
 
@@ -118,22 +121,43 @@ Typeahead suggestions while typing:
 ```go
 hits, err := client.Typeahead(ctx, userQuery, searchkit.TypeaheadOptions{
   Language: "en",
+  LanguageMode: searchkit.LanguageModeExact, // exact|fallback_en (default exact)
   EntityTypes: []string{"tag", "artist", "series"},
   Limit:    10,
   MinSimilarity: 0.3,
+  FilterSQL:  "EXISTS (SELECT 1 FROM app.entities e WHERE e.id::text = sd.entity_id AND e.deleted_at IS NULL)",
+  FilterArgs: map[string]any{},
 })
 ```
+
+Host-injected filters:
+
+- `FilterSQL` and `FilterArgs` are supported on both `SearchOptions` and `TypeaheadOptions`.
+- SearchKit applies these filters inside retrieval queries (before ranking/pagination) for lexical and semantic search paths.
+- Treat `FilterSQL` as trusted host SQL only. Never concatenate raw user input into it; pass values through `FilterArgs`.
+- This keeps SearchKit schema-agnostic: each host can enforce visibility/business constraints with host-specific SQL (including joins/EXISTS).
+
+Language strictness:
+
+- `LanguageModeExact` (default): query only requested language.
+- `LanguageModeFallbackEnglish`: query requested language and English in one call.
+- Language mode is applied inside SearchKit retrieval (before ranking/pagination), not as post-filtering in host app code.
 
 Language-specific routing (handled inside the client):
 
 - For most languages, Typeahead uses `pg_trgm` over `<schema>.search_documents.document`, and Search uses Postgres FTS (`tsvector` + `ts_rank_cd`) for the lexical side.
 - For `ja`/`zh`/`ko`, Typeahead and the lexical side of Search use **PGroonga** over `<schema>.search_documents.raw_document` (native-script), because Postgres FTS `simple` config does not provide Japanese/Chinese segmentation and trigram transliteration is lossy.
+- Mixed-script (`CJK + ASCII`) queries run both lexical backends (PGroonga + trigram) and merge deterministically.
 
 Query syntax notes:
 
 - SearchKit does **not** treat leading `-term` as an operator. Leading `-` is treated as punctuation (so `-factor` behaves like `factor`).
 - For Postgres FTS (`websearch_to_tsquery`), SearchKit normalizes intra-token hyphens to spaces so tokens like `two-factor` behave like `two factor`.
 - Natural-language negation: for FTS only, `not X` is rewritten to `-X` before it reaches Postgres. This is a convenience for users typing normal phrases like `X not Y`.
+
+Host integration details (contract, filter-builder patterns, hentai0/doujins examples):
+
+- See `HOST_INTEGRATION.md`.
 
 ## Language → Postgres FTS config mapping
 

@@ -73,6 +73,13 @@ func TestClientSearch_Integration_LexicalAndSemantic(t *testing.T) {
 	if err != nil {
 		t.Fatalf("insert search_documents: %v", err)
 	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO s.search_documents(entity_type, entity_id, language, raw_document, tsv)
+		VALUES ('gallery', '2', 'en', 'Two factor backup codes', to_tsvector(searchkit_regconfig_for_language('en'), 'Two factor backup codes'))
+	`)
+	if err != nil {
+		t.Fatalf("insert search_documents 2: %v", err)
+	}
 
 	_, err = pool.Exec(ctx, `
 		INSERT INTO s.embedding_vectors(entity_type, entity_id, model, language, embedding)
@@ -80,6 +87,13 @@ func TestClientSearch_Integration_LexicalAndSemantic(t *testing.T) {
 	`, pgvector.NewHalfVector([]float32{1, 0, 0}))
 	if err != nil {
 		t.Fatalf("insert embedding_vectors: %v", err)
+	}
+	_, err = pool.Exec(ctx, `
+		INSERT INTO s.embedding_vectors(entity_type, entity_id, model, language, embedding)
+		VALUES ('gallery', '2', 'm', 'en', $1::halfvec(3))
+	`, pgvector.NewHalfVector([]float32{1, 0, 0}))
+	if err != nil {
+		t.Fatalf("insert embedding_vectors 2: %v", err)
 	}
 
 	emb := &recordingEmbedder{vec: []float32{1, 0, 0}}
@@ -117,5 +131,124 @@ func TestClientSearch_Integration_LexicalAndSemantic(t *testing.T) {
 	}
 	if len(semHits) == 0 || semHits[0].EntityID != "1" {
 		t.Fatalf("expected semantic hit entity_id=1, got %+v", semHits)
+	}
+
+	filteredLex, err := client.Search(ctx, "two factor", SearchOptions{
+		Mode:               SearchModeLexical,
+		Language:           "en",
+		LexicalEntityTypes: []string{"gallery"},
+		Limit:              10,
+		FilterSQL:          "sd.entity_id = @allowed_id",
+		FilterArgs: map[string]any{
+			"allowed_id": "1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("filtered lexical Search: %v", err)
+	}
+	for _, h := range filteredLex {
+		if h.EntityID != "1" {
+			t.Fatalf("expected filtered lexical hits to contain only entity_id=1, got %+v", filteredLex)
+		}
+	}
+
+	filteredSem, err := client.Search(ctx, "two-factor", SearchOptions{
+		Mode:                SearchModeSemantic,
+		Language:            "en",
+		SemanticEntityTypes: []string{"gallery"},
+		Limit:               10,
+		FilterSQL:           "ev.entity_id = @allowed_id",
+		FilterArgs: map[string]any{
+			"allowed_id": "1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("filtered semantic Search: %v", err)
+	}
+	for _, h := range filteredSem {
+		if h.EntityID != "1" {
+			t.Fatalf("expected filtered semantic hits to contain only entity_id=1, got %+v", filteredSem)
+		}
+	}
+
+	filteredTypeahead, err := client.Typeahead(ctx, "two", TypeaheadOptions{
+		Language:    "en",
+		EntityTypes: []string{"gallery"},
+		Limit:       10,
+		FilterSQL:   "sd.entity_id = @allowed_id",
+		FilterArgs: map[string]any{
+			"allowed_id": "1",
+		},
+	})
+	if err != nil {
+		t.Fatalf("filtered typeahead: %v", err)
+	}
+	for _, h := range filteredTypeahead {
+		if h.EntityID != "1" {
+			t.Fatalf("expected filtered typeahead hits to contain only entity_id=1, got %+v", filteredTypeahead)
+		}
+	}
+
+	// Default behavior is strict language (exact only).
+	strictLex, err := client.Search(ctx, "factor", SearchOptions{
+		Mode:               SearchModeLexical,
+		Language:           "es",
+		LexicalEntityTypes: []string{"gallery"},
+		Limit:              10,
+	})
+	if err != nil {
+		t.Fatalf("strict lexical Search: %v", err)
+	}
+	if len(strictLex) != 0 {
+		t.Fatalf("expected strict lexical language mode to return no hits, got %+v", strictLex)
+	}
+
+	fallbackLex, err := client.Search(ctx, "factor", SearchOptions{
+		Mode:               SearchModeLexical,
+		Language:           "es",
+		LanguageMode:       LanguageModeFallbackEnglish,
+		LexicalEntityTypes: []string{"gallery"},
+		Limit:              10,
+	})
+	if err != nil {
+		t.Fatalf("fallback lexical Search: %v", err)
+	}
+	if len(fallbackLex) == 0 {
+		t.Fatalf("expected fallback lexical language mode to return english hits")
+	}
+	for _, h := range fallbackLex {
+		if h.Language != "en" {
+			t.Fatalf("expected fallback lexical hits language=en, got %+v", fallbackLex)
+		}
+	}
+
+	strictTypeahead, err := client.Typeahead(ctx, "two", TypeaheadOptions{
+		Language:    "es",
+		EntityTypes: []string{"gallery"},
+		Limit:       10,
+	})
+	if err != nil {
+		t.Fatalf("strict typeahead: %v", err)
+	}
+	if len(strictTypeahead) != 0 {
+		t.Fatalf("expected strict typeahead language mode to return no hits, got %+v", strictTypeahead)
+	}
+
+	fallbackTypeahead, err := client.Typeahead(ctx, "two", TypeaheadOptions{
+		Language:     "es",
+		LanguageMode: LanguageModeFallbackEnglish,
+		EntityTypes:  []string{"gallery"},
+		Limit:        10,
+	})
+	if err != nil {
+		t.Fatalf("fallback typeahead: %v", err)
+	}
+	if len(fallbackTypeahead) == 0 {
+		t.Fatalf("expected fallback typeahead language mode to return english hits")
+	}
+	for _, h := range fallbackTypeahead {
+		if h.Language != "en" {
+			t.Fatalf("expected fallback typeahead hits language=en, got %+v", fallbackTypeahead)
+		}
 	}
 }
